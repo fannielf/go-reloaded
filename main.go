@@ -10,14 +10,18 @@ import (
 	"strings"
 )
 
+var (
+	numberRegex  = regexp.MustCompile(`\d+`)
+	tokenRegex   = regexp.MustCompile(`\([^()]*\)|[^()\s]+`)
+	caseCmdRegex = regexp.MustCompile(`\((cap|up|low)`)
+)
+
 // finding a number value from a string eg "2)"" and converts it into an integer
 func getInt(s string) int {
 
 	num := 1
 
-	re := regexp.MustCompile(`\d+`)
-
-	match := re.FindString(s)
+	match := numberRegex.FindString(s)
 	if match != "" {
 		number, _ := strconv.Atoi(match)
 
@@ -88,15 +92,16 @@ func fixArticle(s string) string {
 
 // finding an index of a slice that equals equals case specific commands (cap) (up) (low) for one or various words and converts the previous index(es) accordingly. Removes even empty indexes as well as possible value indexes.
 func fixCase(s string) string {
-	regex := regexp.MustCompile(`\([^()]*\)|[^()\s]+`)
-	slice := regex.FindAllString(s, -1)
-
-	re := regexp.MustCompile(`\((cap|up|low)`)
+	slice := tokenRegex.FindAllString(s, -1)
 
 	for i := 0; i < len(slice); i++ {
-		if re.MatchString(strings.ToLower(slice[i])) {
-			keyWord := re.FindString(strings.ToLower(slice[i]))
+		if caseCmdRegex.MatchString(strings.ToLower(slice[i])) {
+			keyWord := caseCmdRegex.FindString(strings.ToLower(slice[i]))
 			num := getInt(slice[i])
+			// never modify more words than exist before the keyword
+			if num > i {
+				num = i
+			}
 			if i > 0 {
 				for j := num; j > 0; j-- {
 					wordToMod := slice[i-j]
@@ -132,6 +137,9 @@ func fixPunctuation(s string) string {
 	}
 
 	for i := 0; i < len(slice); i++ {
+		if slice[i] == "" {
+			continue
+		}
 		if i > 0 && isPunctuationMark[slice[i]] {
 			slice[i-1] = slice[i-1] + slice[i]
 			slice = append(slice[:i], slice[i+1:]...)
@@ -195,12 +203,14 @@ func getOriginalText(text string) string {
 	fileLocation, err := os.Open(text)
 	if err != nil {
 		fmt.Printf("Error: Couldn't open %s file location.\n", text)
+		os.Exit(3)
 	}
 	defer fileLocation.Close()
 
 	fileContent, err := io.ReadAll(fileLocation)
 	if err != nil {
 		fmt.Println("Error: Couldn't read the file contents.")
+		os.Exit(3)
 	}
 	return (string(fileContent))
 }
@@ -208,15 +218,17 @@ func getOriginalText(text string) string {
 // Checking if the output file exists and either create or open the file. Writes the modified content to the output file.
 func writeToFile(file string, content string) {
 
-	textToFile, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // WRONGLY opening the file for writing only (not reading), if not existing yet CREATE (self explanatory), TRUNC wipes the contents of the file
+	textToFile, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // WRONLY opens for writing only, CREATE creates the file if missing, TRUNC wipes existing contents
 	if err != nil {
 		fmt.Printf("Error: Couldn't open nor create %s .\n", file)
+		os.Exit(3)
 	}
 	defer textToFile.Close()
 
 	_, err = textToFile.Write([]byte(content))
 	if err != nil {
 		fmt.Printf("Error: Failed to write content to %s .\n", file)
+		os.Exit(3)
 	}
 }
 
@@ -252,15 +264,10 @@ func main() {
 
 	readyContent := handlingContent(originalContent)
 
-	// modifiedContent := fixHexBin(originalContent)
-	// modifiedContent = fixArticle(modifiedContent)
-	// modifiedContent = fixCase(modifiedContent)
-	// modifiedContent = fixPunctuation(modifiedContent)
-	// readyContent := fixQuotation(modifiedContent)
-
 	writeToFile(outputFile, readyContent)
 }
 
+// applies all transformation rules line by line, keeping the original line structure
 func handlingContent(s string) string {
 	contentLines := strings.Split(s, "\n")
 
